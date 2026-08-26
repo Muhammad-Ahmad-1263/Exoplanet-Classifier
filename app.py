@@ -61,6 +61,44 @@ SLIDER_CONFIG = {
     "koi_kepmag":     ("Kepler Magnitude (brightness)", 8.0, 18.0, 14.52, 0.1),
 }
 
+# ---------------------------------------------------------------------------
+# Solar System reference data, for a visual "which planet does this resemble?"
+# comparison. Radius in Earth radii, orbital period in days, and equilibrium
+# temperature in Kelvin (assuming a standard 0.3 Bond albedo, no greenhouse
+# effect) -- the same physical convention Kepler's koi_teq uses, so these are
+# directly comparable to a candidate's measured values.
+# Images are real NASA-sourced photographs, public domain (US government
+# work), hosted on Wikimedia Commons via the stable Special:FilePath redirect.
+# ---------------------------------------------------------------------------
+SOLAR_SYSTEM_PLANETS = {
+    "Mercury": {"radius": 0.383, "period": 88.0,    "teq": 440, "image": "Mercury_in_color_-_Prockter07-edit1.jpg"},
+    "Venus":   {"radius": 0.949, "period": 224.7,   "teq": 232, "image": "Venus-real_color.jpg"},
+    "Earth":   {"radius": 1.000, "period": 365.25,  "teq": 255, "image": "The_Earth_seen_from_Apollo_17.jpg"},
+    "Mars":    {"radius": 0.532, "period": 687.0,   "teq": 210, "image": "OSIRIS_Mars_true_color.jpg"},
+    "Jupiter": {"radius": 11.21, "period": 4331.0,  "teq": 110, "image": "Jupiter_and_its_shrunken_Great_Red_Spot.jpg"},
+    "Saturn":  {"radius": 9.45,  "period": 10747.0, "teq": 81,  "image": "Saturn_during_Equinox.jpg"},
+    "Uranus":  {"radius": 4.01,  "period": 30589.0, "teq": 58,  "image": "Uranus2.jpg"},
+    "Neptune": {"radius": 3.88,  "period": 59800.0, "teq": 47,  "image": "Neptune_Full.jpg"},
+}
+WIKIMEDIA_BASE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+
+
+def find_closest_planet(prad, period, teq):
+    """Nearest Solar System planet by log-scaled Euclidean distance across
+    radius, orbital period, and equilibrium temperature. Log-scaling matters
+    here since these quantities span several orders of magnitude (e.g.
+    Mercury's 88-day orbit vs. Neptune's ~60,000-day orbit)."""
+    best_name, best_dist = None, np.inf
+    for name, p in SOLAR_SYSTEM_PLANETS.items():
+        d = (
+            (np.log10(prad) - np.log10(p["radius"])) ** 2
+            + (np.log10(period) - np.log10(p["period"])) ** 2
+            + (np.log10(teq) - np.log10(p["teq"])) ** 2
+        )
+        if d < best_dist:
+            best_name, best_dist = name, d
+    return best_name
+
 st.title("🪐 Exoplanet Disposition Classifier")
 st.caption(
     "Predicts whether a Kepler Object of Interest is a **Candidate**, "
@@ -182,3 +220,78 @@ if explainer is not None:
         "Green bars pushed the prediction toward the shown class; red bars pushed against it. "
         "Values reflect this single prediction, not the model's global feature importance."
     )
+
+st.divider()
+st.subheader("🌍 How does this compare to our own Solar System?")
+st.caption(
+    "A candidate's radius, orbital period, and equilibrium temperature alone don't tell you "
+    "much in the abstract -- but comparing them to planets we can actually picture does. "
+    "Nearest match is by log-scaled distance across all three quantities."
+)
+
+closest = find_closest_planet(input_values["koi_prad"], input_values["koi_period"], input_values["koi_teq"])
+closest_data = SOLAR_SYSTEM_PLANETS[closest]
+
+col_match_img, col_match_info = st.columns([1, 2])
+with col_match_img:
+    try:
+        st.image(WIKIMEDIA_BASE + closest_data["image"], caption=closest, use_container_width=True)
+    except Exception:
+        st.info(f"Closest match: **{closest}** (image unavailable)")
+with col_match_info:
+    st.markdown(f"### Closest Solar System analog: **{closest}**")
+    st.markdown(
+        f"""
+        | | This candidate | {closest} |
+        |---|---|---|
+        | Radius (Earth radii) | {input_values['koi_prad']:.2f} | {closest_data['radius']:.2f} |
+        | Orbital period (days) | {input_values['koi_period']:.1f} | {closest_data['period']:.1f} |
+        | Equilibrium temp (K) | {input_values['koi_teq']:.0f} | {closest_data['teq']} |
+        """
+    )
+    st.caption(
+        "This is a rough size/temperature/orbit analogy for intuition only -- it says nothing "
+        "about the candidate's actual composition, atmosphere, or habitability."
+    )
+
+# Radar chart: normalized (log-scaled) comparison across all three dimensions
+radar_categories = ["Radius", "Orbital Period", "Equilibrium Temp"]
+
+def normalize_for_radar(prad, period, teq):
+    # Log-scale then min-max normalize against the full Mercury-to-Neptune range
+    all_r = [p["radius"] for p in SOLAR_SYSTEM_PLANETS.values()]
+    all_p = [p["period"] for p in SOLAR_SYSTEM_PLANETS.values()]
+    all_t = [p["teq"] for p in SOLAR_SYSTEM_PLANETS.values()]
+    def scale(val, ref_list):
+        lo, hi = np.log10(min(ref_list)), np.log10(max(ref_list))
+        return (np.log10(val) - lo) / (hi - lo)
+    return [scale(prad, all_r), scale(period, all_p), scale(teq, all_t)]
+
+fig_radar = go.Figure()
+fig_radar.add_trace(go.Scatterpolar(
+    r=normalize_for_radar(input_values["koi_prad"], input_values["koi_period"], input_values["koi_teq"]) + [None],
+    theta=radar_categories + [radar_categories[0]],
+    fill="toself", name="This candidate", line_color="#1f77b4",
+))
+fig_radar.add_trace(go.Scatterpolar(
+    r=normalize_for_radar(closest_data["radius"], closest_data["period"], closest_data["teq"]) + [None],
+    theta=radar_categories + [radar_categories[0]],
+    fill="toself", name=closest, line_color="#ff7f0e", opacity=0.6,
+))
+fig_radar.update_layout(
+    polar=dict(radialaxis=dict(visible=True, range=[0, 1], showticklabels=False)),
+    showlegend=True,
+    title="Normalized profile: this candidate vs. its closest Solar System match",
+    height=420,
+)
+st.plotly_chart(fig_radar, use_container_width=True)
+
+with st.expander("See all 8 planets for reference"):
+    cols = st.columns(4)
+    for i, (name, p) in enumerate(SOLAR_SYSTEM_PLANETS.items()):
+        with cols[i % 4]:
+            try:
+                st.image(WIKIMEDIA_BASE + p["image"], caption=name, use_container_width=True)
+            except Exception:
+                st.write(name)
+            st.caption(f"{p['radius']:.2f} R⊕ · {p['period']:.0f} days · {p['teq']} K")
