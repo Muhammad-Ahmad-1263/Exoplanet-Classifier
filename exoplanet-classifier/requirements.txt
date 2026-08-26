@@ -1,0 +1,12 @@
+numpy>=1.26
+pandas>=2.1
+matplotlib>=3.8
+seaborn>=0.13
+scikit-learn>=1.4
+xgboost>=2.0
+tensorflow>=2.16
+jupyter>=1.0
+streamlit>=1.35
+plotly>=5.20
+joblib>=1.4
+shap>=0.45

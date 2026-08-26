@@ -1,0 +1,29 @@
+KEPLER EXOPLANET CLASSIFICATION - RESULTS SUMMARY
+=======================================================
+
+Dataset: NASA Kepler Cumulative KOI Table
+Rows used (after cleaning): 9200
+Classes: ['CANDIDATE', 'CONFIRMED', 'FALSE POSITIVE']
+
+Leakage check (Random Forest WITH vetting flags): 0.9098 test accuracy
+These flags were excluded from the primary model as they are automated
+pipeline outputs that near-determine disposition, not physical measurements.
+
+Final test accuracy (physical features only):
+         Model  Test Accuracy
+       XGBoost       0.774457
+ Random Forest       0.754891
+ Decision Tree       0.732609
+Neural Network       0.721196
+
+Best model: XGBoost
+
+                precision    recall  f1-score   support
+
+     CANDIDATE       0.61      0.59      0.60       463
+     CONFIRMED       0.77      0.83      0.80       461
+FALSE POSITIVE       0.85      0.84      0.85       916
+
+      accuracy                           0.77      1840
+     macro avg       0.75      0.75      0.75      1840
+  weighted avg       0.77      0.77      0.77      1840

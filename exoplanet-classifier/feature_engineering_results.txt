@@ -1,0 +1,11 @@
+FEATURE ENGINEERING RESULTS
+========================================
+
+Baseline (12 raw features):    accuracy=0.7745, ROC-AUC=0.9113
+Engineered (18 features):      accuracy=0.7755, ROC-AUC=0.9143
+
+Difference: +0.0011 (+0.11 pp)
+
+Engineered features provided a small, likely marginal improvement.
+
+Interpretation: combined with the learning curve result (train_model.py), this suggests the ~77% accuracy ceiling on physical parameters is closer to the genuine information limit of this feature set for this task, rather than an artifact of insufficient tuning or naive feature representation. Meaningfully surpassing it would likely require additional data modalities not present in the cumulative table -- e.g. full light curve shape, not just its summary statistics.

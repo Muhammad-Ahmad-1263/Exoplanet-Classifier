@@ -1,0 +1,23 @@
+HYPERPARAMETER TUNING RESULTS
+========================================
+
+Baseline XGBoost test accuracy:  0.7745
+Tuned XGBoost test accuracy:     0.7750
+Difference:                      +0.0005
+
+Best CV accuracy (train, 5-fold): 0.7583
+Best hyperparameters: {'subsample': 0.6, 'reg_lambda': 2.0, 'n_estimators': 200, 'min_child_weight': 5, 'max_depth': 5, 'learning_rate': 0.1, 'gamma': 0, 'colsample_bytree': 0.9}
+
+Tuned macro ROC-AUC: 0.9123
+
+                precision    recall  f1-score   support
+
+     CANDIDATE       0.61      0.58      0.60       463
+     CONFIRMED       0.78      0.84      0.80       461
+FALSE POSITIVE       0.86      0.84      0.85       916
+
+      accuracy                           0.78      1840
+     macro avg       0.75      0.75      0.75      1840
+  weighted avg       0.77      0.78      0.77      1840
+
+Model saved: Yes, tuned model replaced baseline
