@@ -19,6 +19,43 @@ import shap
 st.set_page_config(page_title="Exoplanet Disposition Classifier", page_icon="🪐", layout="wide")
 
 # ---------------------------------------------------------------------------
+# Subtle background video (real NASA/ESA-sourced orbit animation, public
+# domain, hosted on Wikimedia Commons). Kept low-opacity with a translucent
+# overlay so it reads as ambiance rather than competing with the actual
+# content -- the app is a data tool first, not a video player.
+# ---------------------------------------------------------------------------
+_BG_VIDEO_URL = "https://upload.wikimedia.org/wikipedia/commons/0/00/Orbits.webm"
+st.markdown(
+    f"""
+    <style>
+    #bg-video {{
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        object-fit: cover;
+        z-index: -2;
+        opacity: 0.22;
+    }}
+    #bg-overlay {{
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        z-index: -1;
+        background: rgba(255, 255, 255, 0.86);
+    }}
+    .stApp {{
+        background: transparent;
+    }}
+    </style>
+    <video autoplay muted loop playsinline id="bg-video">
+        <source src="{_BG_VIDEO_URL}" type="video/webm">
+    </video>
+    <div id="bg-overlay"></div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---------------------------------------------------------------------------
 # Load model artifacts
 # ---------------------------------------------------------------------------
 @st.cache_resource
@@ -300,12 +337,29 @@ fig_radar.update_layout(
 )
 st.plotly_chart(fig_radar, use_container_width=True)
 
-with st.expander("See all 8 planets for reference"):
-    cols = st.columns(4)
-    for i, (name, p) in enumerate(SOLAR_SYSTEM_PLANETS.items()):
-        with cols[i % 4]:
-            try:
-                st.image(wikimedia_direct_url(p["image"]), caption=name, use_container_width=True)
-            except Exception:
-                st.write(name)
-            st.caption(f"{p['radius']:.2f} R⊕ · {p['period']:.0f} days · {p['teq']} K")
+st.divider()
+st.subheader("🪐 Explore the Solar System")
+st.caption("Slide through our own planets to see how their real sizes, orbits, and temperatures compare.")
+
+planet_order = list(SOLAR_SYSTEM_PLANETS.keys())
+selected_planet = st.select_slider(
+    "Drag to browse a planet",
+    options=planet_order,
+    value="Earth",
+)
+sp = SOLAR_SYSTEM_PLANETS[selected_planet]
+
+col_slider_img, col_slider_info = st.columns([1, 2])
+with col_slider_img:
+    try:
+        st.image(wikimedia_direct_url(sp["image"]), caption=selected_planet, use_container_width=True)
+    except Exception:
+        st.write(f"**{selected_planet}** (image unavailable)")
+with col_slider_info:
+    st.markdown(f"### {selected_planet}")
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Radius", f"{sp['radius']:.2f} R⊕")
+    m2.metric("Orbital period", f"{sp['period']:,.0f} days")
+    m3.metric("Equilibrium temp", f"{sp['teq']} K")
+    if selected_planet == closest:
+        st.success(f"This is the closest Solar System match to the candidate you configured above!")
