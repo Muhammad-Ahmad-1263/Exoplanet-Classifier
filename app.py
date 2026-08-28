@@ -8,6 +8,8 @@ Run with: streamlit run app.py
 """
 
 import joblib
+import hashlib
+from urllib.parse import quote
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -81,6 +83,18 @@ SOLAR_SYSTEM_PLANETS = {
     "Neptune": {"radius": 3.88,  "period": 59800.0, "teq": 47,  "image": "Neptune_Full.jpg"},
 }
 WIKIMEDIA_BASE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+
+
+def wikimedia_direct_url(filename):
+    """Build the actual upload.wikimedia.org CDN URL directly, rather than
+    relying on the Special:FilePath redirect (which didn't reliably resolve
+    as a hotlinked <img> source in testing). Wikimedia stores files under a
+    path derived from the MD5 hash of the underscored filename -- this is
+    the same deterministic scheme Wikimedia's own servers use, so it doesn't
+    depend on any redirect or extra network round-trip."""
+    fname = filename.replace(" ", "_")
+    digest = hashlib.md5(fname.encode("utf-8")).hexdigest()
+    return f"https://upload.wikimedia.org/wikipedia/commons/{digest[0]}/{digest[0:2]}/{quote(fname)}"
 
 
 def find_closest_planet(prad, period, teq):
@@ -235,7 +249,7 @@ closest_data = SOLAR_SYSTEM_PLANETS[closest]
 col_match_img, col_match_info = st.columns([1, 2])
 with col_match_img:
     try:
-        st.image(WIKIMEDIA_BASE + closest_data["image"], caption=closest, use_container_width=True)
+        st.image(wikimedia_direct_url(closest_data["image"]), caption=closest, use_container_width=True)
     except Exception:
         st.info(f"Closest match: **{closest}** (image unavailable)")
 with col_match_info:
@@ -291,7 +305,7 @@ with st.expander("See all 8 planets for reference"):
     for i, (name, p) in enumerate(SOLAR_SYSTEM_PLANETS.items()):
         with cols[i % 4]:
             try:
-                st.image(WIKIMEDIA_BASE + p["image"], caption=name, use_container_width=True)
+                st.image(wikimedia_direct_url(p["image"]), caption=name, use_container_width=True)
             except Exception:
                 st.write(name)
             st.caption(f"{p['radius']:.2f} R⊕ · {p['period']:.0f} days · {p['teq']} K")
