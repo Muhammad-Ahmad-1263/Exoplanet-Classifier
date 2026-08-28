@@ -34,7 +34,7 @@ st.markdown(
         width: 100%; height: 100%;
         object-fit: cover;
         z-index: -2;
-        opacity: 0.55;
+        opacity: 0.45;
         filter: saturate(1.1);
     }}
     #bg-overlay {{
@@ -42,18 +42,10 @@ st.markdown(
         top: 0; left: 0;
         width: 100%; height: 100%;
         z-index: -1;
-        background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.88) 45%, rgba(255,255,255,0.94) 100%);
+        background: linear-gradient(180deg, rgba(255,255,255,0.60) 0%, rgba(255,255,255,0.92) 50%, rgba(255,255,255,0.97) 100%);
     }}
     .stApp {{
         background: transparent;
-    }}
-    /* Give content blocks a solid card background so text stays crisp
-       regardless of what's moving behind them. */
-    div[data-testid="stVerticalBlockBorderWrapper"],
-    div[data-testid="stExpander"],
-    div[data-testid="stMetric"] {{
-        background: rgba(255, 255, 255, 0.9);
-        border-radius: 10px;
     }}
     </style>
     <video autoplay muted loop playsinline id="bg-video">
