@@ -34,17 +34,26 @@ st.markdown(
         width: 100%; height: 100%;
         object-fit: cover;
         z-index: -2;
-        opacity: 0.22;
+        opacity: 0.55;
+        filter: saturate(1.1);
     }}
     #bg-overlay {{
         position: fixed;
         top: 0; left: 0;
         width: 100%; height: 100%;
         z-index: -1;
-        background: rgba(255, 255, 255, 0.86);
+        background: linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.88) 45%, rgba(255,255,255,0.94) 100%);
     }}
     .stApp {{
         background: transparent;
+    }}
+    /* Give content blocks a solid card background so text stays crisp
+       regardless of what's moving behind them. */
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    div[data-testid="stExpander"],
+    div[data-testid="stMetric"] {{
+        background: rgba(255, 255, 255, 0.9);
+        border-radius: 10px;
     }}
     </style>
     <video autoplay muted loop playsinline id="bg-video">
@@ -233,7 +242,7 @@ with col_results:
         title="Class Probabilities",
         height=350,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
     st.caption(
         "This tool is for educational purposes, built on real Kepler mission data. "
@@ -266,7 +275,7 @@ if explainer is not None:
         xaxis_title="SHAP value (push toward / away from this class)",
         height=380,
     )
-    st.plotly_chart(fig_shap, use_container_width=True)
+    st.plotly_chart(fig_shap, width="stretch")
     st.caption(
         "Green bars pushed the prediction toward the shown class; red bars pushed against it. "
         "Values reflect this single prediction, not the model's global feature importance."
@@ -286,7 +295,7 @@ closest_data = SOLAR_SYSTEM_PLANETS[closest]
 col_match_img, col_match_info = st.columns([1, 2])
 with col_match_img:
     try:
-        st.image(wikimedia_direct_url(closest_data["image"]), caption=closest, use_container_width=True)
+        st.image(wikimedia_direct_url(closest_data["image"]), caption=closest, width="stretch")
     except Exception:
         st.info(f"Closest match: **{closest}** (image unavailable)")
 with col_match_info:
@@ -335,7 +344,7 @@ fig_radar.update_layout(
     title="Normalized profile: this candidate vs. its closest Solar System match",
     height=420,
 )
-st.plotly_chart(fig_radar, use_container_width=True)
+st.plotly_chart(fig_radar, width="stretch")
 
 st.divider()
 st.subheader("🪐 Explore the Solar System")
@@ -352,7 +361,7 @@ sp = SOLAR_SYSTEM_PLANETS[selected_planet]
 col_slider_img, col_slider_info = st.columns([1, 2])
 with col_slider_img:
     try:
-        st.image(wikimedia_direct_url(sp["image"]), caption=selected_planet, use_container_width=True)
+        st.image(wikimedia_direct_url(sp["image"]), caption=selected_planet, width="stretch")
     except Exception:
         st.write(f"**{selected_planet}** (image unavailable)")
 with col_slider_info:
