@@ -9,6 +9,7 @@ Run with: streamlit run app.py
 
 import joblib
 import hashlib
+import json
 import os
 from datetime import datetime
 from urllib.parse import quote
@@ -186,8 +187,8 @@ with _userbar_r:
 # gracefully if a future Streamlit version changes these internals.
 # ---------------------------------------------------------------------------
 _DEFAULTS = {
-    "Light": {"bg": "#ffffff", "text": "#262730", "accent": "#ff4b4b"},
-    "Dark":  {"bg": "#0e1117", "text": "#fafafa", "accent": "#ff6b6b"},
+    "Light": {"bg": "#f7f9fb", "text": "#1e293b", "accent": "#2563eb"},
+    "Dark":  {"bg": "#0f172a", "text": "#e2e8f0", "accent": "#3b82f6"},
 }
 if "theme" not in st.session_state:
     st.session_state.theme = "Light"
@@ -216,8 +217,10 @@ _bg_color = st.session_state.custom_colors["bg"]
 _text_color = st.session_state.custom_colors["text"]
 _primary = st.session_state.custom_colors["accent"]
 _sec_bg = _bg_color
-_bg_grad = f"linear-gradient(135deg, {_bg_color} 0%, {_primary}22 50%, {_bg_color} 100%)"
 
+# Flat, professional background -- deliberately NOT a gradient. A solid,
+# muted surface reads as a serious data tool; a busy multi-color gradient
+# behind dense tables and charts fights for attention against the content.
 st.markdown(
     f"""
     <style>
@@ -228,8 +231,7 @@ st.markdown(
         --primary-color: {_primary};
     }}
     .stApp {{
-        background: {_bg_grad};
-        background-attachment: fixed;
+        background-color: {_bg_color};
     }}
     </style>
     """,
@@ -315,6 +317,97 @@ PLANET_TEXTURES = {
     "Neptune": "Solarsystemscope_texture_2k_neptune.jpg",
 }
 SATURN_RING_TEXTURE = "Solarsystemscope_texture_2k_saturn_ring_alpha.png"
+MOON_TEXTURE = "Solarsystemscope_texture_2k_moon.jpg"
+
+# Simplified moon data for the 3D viewer: distance/radius are in units of the
+# parent planet's own radius (=1), not real-world scale, so everything stays
+# visible in one frame. Mercury and Venus are correctly omitted -- neither
+# has any moons. Only Earth's Moon uses a real texture; the rest use plain
+# colored spheres since Solar System Scope doesn't publish free textures for
+# them, but their presence and relative position/size are accurate.
+MOON_DATA = {
+    "Earth":   [{"name": "Moon", "distance": 1.8, "radius": 0.27, "color": "#aaaaaa", "textured": True}],
+    "Mars":    [{"name": "Phobos", "distance": 1.4, "radius": 0.05, "color": "#8a7f6b", "textured": False},
+                {"name": "Deimos", "distance": 1.8, "radius": 0.03, "color": "#9c9282", "textured": False}],
+    "Jupiter": [{"name": "Io", "distance": 1.6, "radius": 0.11, "color": "#d9c26a", "textured": False},
+                {"name": "Europa", "distance": 1.9, "radius": 0.10, "color": "#c9b998", "textured": False},
+                {"name": "Ganymede", "distance": 2.3, "radius": 0.15, "color": "#8c8c8c", "textured": False},
+                {"name": "Callisto", "distance": 2.7, "radius": 0.14, "color": "#5f5a52", "textured": False}],
+    "Saturn":  [{"name": "Titan", "distance": 2.7, "radius": 0.16, "color": "#d9a441", "textured": False}],
+    "Uranus":  [{"name": "Titania", "distance": 1.7, "radius": 0.09, "color": "#9fa8b0", "textured": False}],
+    "Neptune": [{"name": "Triton", "distance": 1.7, "radius": 0.10, "color": "#a8c3d0", "textured": False}],
+}
+
+# Artistic (NOT real-scale) orbit/size layout for the full-system view, so
+# every planet stays visible and clickable in a single frame -- real orbital
+# distances range from 0.39 AU to 30 AU, which would make Mercury and
+# Neptune impossible to show together at any usable zoom level. Sizes are
+# ordered correctly (Jupiter largest, Mercury smallest) even though they
+# aren't to true relative scale either, for the same reason.
+ORBIT_SCENE_DATA = {
+    "Mercury": {"orbit_radius": 3.2,  "visual_radius": 0.24, "period_days": 88},
+    "Venus":   {"orbit_radius": 4.3,  "visual_radius": 0.42, "period_days": 225},
+    "Earth":   {"orbit_radius": 5.6,  "visual_radius": 0.44, "period_days": 365},
+    "Mars":    {"orbit_radius": 7.0,  "visual_radius": 0.30, "period_days": 687},
+    "Jupiter": {"orbit_radius": 10.5, "visual_radius": 1.10, "period_days": 4331},
+    "Saturn":  {"orbit_radius": 14.5, "visual_radius": 0.95, "period_days": 10747},
+    "Uranus":  {"orbit_radius": 18.0, "visual_radius": 0.65, "period_days": 30589},
+    "Neptune": {"orbit_radius": 21.0, "visual_radius": 0.63, "period_days": 59800},
+}
+
+# Brief, original one/two-sentence intros -- written in plain language, not
+# copied from any source. Moon intro correctly notes no moons for Mercury
+# and Venus.
+PLANET_FACTS = {
+    "Mercury": {
+        "intro": "The smallest planet and the closest to the Sun, with wild temperature "
+                  "swings between a scorching day side and a freezing night side.",
+        "moon_intro": "Mercury has no moons.",
+    },
+    "Venus": {
+        "intro": "Similar in size to Earth, but its thick atmosphere traps heat so "
+                  "effectively that it's the hottest planet in the Solar System.",
+        "moon_intro": "Venus has no moons.",
+    },
+    "Earth": {
+        "intro": "The only planet known to host life, with liquid water covering most "
+                  "of its surface and an atmosphere that supports a stable climate.",
+        "moon_intro": "The Moon is Earth's only natural satellite -- large enough relative "
+                        "to Earth that the two are sometimes considered a double-planet system.",
+    },
+    "Mars": {
+        "intro": "Known as the Red Planet due to iron oxide (rust) covering its surface, "
+                  "and a major target for future human exploration.",
+        "moon_intro": "Mars has two small, irregularly shaped moons, Phobos and Deimos, "
+                        "likely captured asteroids rather than moons formed alongside the planet.",
+    },
+    "Jupiter": {
+        "intro": "The largest planet in the Solar System by far, a gas giant famous for "
+                  "the Great Red Spot, a storm larger than Earth that has raged for centuries.",
+        "moon_intro": "Jupiter's four largest moons -- Io, Europa, Ganymede, and Callisto -- "
+                        "were discovered by Galileo in 1610. Ganymede is the largest moon in the "
+                        "Solar System, and Europa is a leading candidate for a subsurface ocean.",
+    },
+    "Saturn": {
+        "intro": "Famous for its spectacular ring system, made of countless particles of "
+                  "ice and rock ranging from dust-sized to house-sized.",
+        "moon_intro": "Titan, Saturn's largest moon, is the only moon known to have a dense "
+                        "atmosphere and stable liquid lakes on its surface -- of methane, not water.",
+    },
+    "Uranus": {
+        "intro": "An ice giant that rotates almost completely on its side, giving it the "
+                  "most extreme seasons of any planet in the Solar System.",
+        "moon_intro": "Titania, Uranus's largest moon, is named after a character from "
+                        "Shakespeare's 'A Midsummer Night's Dream.'",
+    },
+    "Neptune": {
+        "intro": "The most distant planet from the Sun, known for hosting the fastest "
+                  "winds ever recorded in the Solar System.",
+        "moon_intro": "Triton, Neptune's largest moon, orbits backwards relative to Neptune's "
+                        "own rotation -- strong evidence it's a captured object, not one that "
+                        "formed alongside the planet.",
+    },
+}
 
 
 def wikimedia_direct_url(filename):
@@ -364,7 +457,7 @@ st.markdown(
 st.markdown(
     f"""
     <div style="
-        background: linear-gradient(135deg, {_primary}dd 0%, {_primary}88 100%);
+        background: {_primary};
         padding: 28px 32px;
         border-radius: 14px;
         margin-bottom: 20px;
@@ -603,117 +696,248 @@ with col_slider_info:
         st.success(f"This is the closest Solar System match to the candidate you configured above!")
 
 st.divider()
-st.subheader("🌐 3D Planet Explorer")
+st.subheader("🌐 3D Solar System")
 st.caption(
-    "A real, textured 3D model -- drag to rotate, scroll (or pinch on mobile) to zoom in and out."
+    "All eight planets orbiting live. Click any planet to zoom in and see its facts, moons, and radius. "
+    "Drag to rotate the whole view, scroll or pinch to zoom, and use the button below to zoom back out."
 )
 
-_planet_3d = st.selectbox("Choose a planet to view in 3D", list(PLANET_TEXTURES.keys()),
-                           index=list(PLANET_TEXTURES.keys()).index(selected_planet))
-_texture_url = wikimedia_direct_url(PLANET_TEXTURES[_planet_3d])
-_ring_url = wikimedia_direct_url(SATURN_RING_TEXTURE) if _planet_3d == "Saturn" else ""
-_3d_bg = "#0e1117" if st.session_state.theme == "Dark" else "#eef3ff"
+_sun_texture_url = wikimedia_direct_url("Solarsystemscope_texture_2k_sun.jpg")
+_moon_texture_url = wikimedia_direct_url(MOON_TEXTURE)
+_ring_texture_url = wikimedia_direct_url(SATURN_RING_TEXTURE)
+_planet_textures_json = json.dumps({p: wikimedia_direct_url(f) for p, f in PLANET_TEXTURES.items()})
+_orbit_data_json = json.dumps(ORBIT_SCENE_DATA)
+_moon_data_json = json.dumps(MOON_DATA)
+_planet_facts_json = json.dumps(PLANET_FACTS)
+_solar_system_stats_json = json.dumps(SOLAR_SYSTEM_PLANETS)
+_3d_bg = "#0f172a" if st.session_state.theme == "Dark" else "#eef2f7"
+_3d_panel_bg = "#1e293b" if st.session_state.theme == "Dark" else "#ffffff"
+_3d_text = "#e2e8f0" if st.session_state.theme == "Dark" else "#1e293b"
 
 st.components.v1.html(
     f"""
-    <div id="viewer-container" style="width:100%; height:480px; background:{_3d_bg}; border-radius:12px; overflow:hidden; position:relative;">
-        <div id="loading-msg" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#888; font-family:sans-serif; z-index:10;">
-            Loading 3D model...
+    <div id="viewer-container" style="width:100%; height:560px; background:{_3d_bg}; border-radius:12px; overflow:hidden; position:relative; font-family:'Inter',sans-serif;">
+        <div id="loading-msg" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#888; z-index:10;">
+            Loading Solar System...
         </div>
+        <div id="info-panel" style="display:none; position:absolute; top:16px; right:16px; width:280px; max-width:42%;
+             background:{_3d_panel_bg}; color:{_3d_text}; border-radius:12px; padding:16px 18px; box-shadow:0 4px 20px rgba(0,0,0,0.25); z-index:20;">
+        </div>
+        <button id="reset-view-btn" style="display:none; position:absolute; bottom:16px; left:16px; z-index:20;
+             padding:8px 16px; border-radius:8px; border:none; cursor:pointer; background:{_3d_panel_bg}; color:{_3d_text}; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
+            🔭 View Whole Solar System
+        </button>
     </div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
     <script>
         const container = document.getElementById('viewer-container');
+        const infoPanel = document.getElementById('info-panel');
+        const resetBtn = document.getElementById('reset-view-btn');
         const width = container.clientWidth;
-        const height = 480;
+        const height = 560;
+
+        const orbitData = {_orbit_data_json};
+        const moonData = {_moon_data_json};
+        const planetFacts = {_planet_facts_json};
+        const planetStats = {_solar_system_stats_json};
+        const planetTextureUrls = {_planet_textures_json};
 
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-        camera.position.z = 3.2;
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 2000);
+        camera.position.set(0, 16, 26);
 
         const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
         renderer.setSize(width, height);
         container.appendChild(renderer.domElement);
 
-        // Lighting: ambient fill + a directional "sun" light for real shading
-        scene.add(new THREE.AmbientLight(0xffffff, 0.45));
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.1);
-        sunLight.position.set(5, 3, 5);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+        const sunLight = new THREE.PointLight(0xffffff, 2.2, 200);
         scene.add(sunLight);
 
-        // Starfield backdrop for depth
+        // Starfield backdrop
         const starGeo = new THREE.BufferGeometry();
-        const starCount = 800;
+        const starCount = 1500;
         const starPositions = new Float32Array(starCount * 3);
-        for (let i = 0; i < starCount * 3; i++) {{ starPositions[i] = (Math.random() - 0.5) * 60; }}
+        for (let i = 0; i < starCount * 3; i++) {{ starPositions[i] = (Math.random() - 0.5) * 200; }}
         starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
-        const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({{ color: 0xffffff, size: 0.05 }}));
-        scene.add(stars);
+        scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({{ color: 0xffffff, size: 0.15 }})));
 
         const loader = new THREE.TextureLoader();
-        const planetGroup = new THREE.Group();
-        scene.add(planetGroup);
 
-        loader.load(
-            "{_texture_url}",
-            function(texture) {{
-                document.getElementById('loading-msg').style.display = 'none';
-                const geometry = new THREE.SphereGeometry(1, 64, 64);
-                const material = new THREE.MeshStandardMaterial({{ map: texture, roughness: 0.85, metalness: 0.05 }});
-                const sphere = new THREE.Mesh(geometry, material);
-                planetGroup.add(sphere);
+        // The Sun, at the center
+        const sunGeo = new THREE.SphereGeometry(1.8, 48, 48);
+        loader.load("{_sun_texture_url}",
+            (tex) => {{ sunMesh.material.map = tex; sunMesh.material.needsUpdate = true; }});
+        const sunMesh = new THREE.Mesh(sunGeo, new THREE.MeshBasicMaterial({{ color: 0xffdd88 }}));
+        scene.add(sunMesh);
 
-                const ringUrl = "{_ring_url}";
-                if (ringUrl.length > 0) {{
-                    loader.load(ringUrl, function(ringTexture) {{
-                        const ringGeo = new THREE.RingGeometry(1.3, 2.2, 64);
-                        const pos = ringGeo.attributes.position;
-                        const v3 = new THREE.Vector3();
-                        for (let i = 0; i < pos.count; i++) {{
-                            v3.fromBufferAttribute(pos, i);
-                            ringGeo.attributes.uv.setXY(i, v3.length() < 1.75 ? 0 : 1, 1);
-                        }}
-                        const ringMat = new THREE.MeshStandardMaterial({{
-                            map: ringTexture, side: THREE.DoubleSide, transparent: true
-                        }});
-                        const ring = new THREE.Mesh(ringGeo, ringMat);
-                        ring.rotation.x = Math.PI / 2.3;
-                        planetGroup.add(ring);
-                    }});
-                }}
-            }},
-            undefined,
-            function(err) {{
-                document.getElementById('loading-msg').textContent = 'Could not load texture -- showing placeholder.';
-                const geometry = new THREE.SphereGeometry(1, 64, 64);
-                const material = new THREE.MeshStandardMaterial({{ color: 0x6699cc, roughness: 0.8 }});
-                planetGroup.add(new THREE.Mesh(geometry, material));
-                setTimeout(() => {{ document.getElementById('loading-msg').style.display = 'none'; }}, 1500);
+        // Faint orbit path rings, drawn once, purely visual
+        Object.values(orbitData).forEach(function(od) {{
+            const orbitGeo = new THREE.RingGeometry(od.orbit_radius - 0.02, od.orbit_radius + 0.02, 128);
+            const orbitMat = new THREE.MeshBasicMaterial({{ color: 0x888888, side: THREE.DoubleSide, transparent: true, opacity: 0.25 }});
+            const orbitRing = new THREE.Mesh(orbitGeo, orbitMat);
+            orbitRing.rotation.x = Math.PI / 2;
+            scene.add(orbitRing);
+        }});
+
+        const planetObjects = {{}};  // name -> {{ group, mesh, angle, speed, orbitRadius, visualRadius }}
+        const clickableMeshes = [];
+        const moonMeshes = [];
+
+        function buildPlanet(name, data) {{
+            const group = new THREE.Group();
+            const geometry = new THREE.SphereGeometry(data.visual_radius, 48, 48);
+            const material = new THREE.MeshStandardMaterial({{ color: 0x88aacc, roughness: 0.85 }});
+            const mesh = new THREE.Mesh(geometry, material);
+            mesh.userData.planetName = name;
+            group.add(mesh);
+            scene.add(group);
+            clickableMeshes.push(mesh);
+
+            loader.load(planetTextureUrls[name], (tex) => {{
+                material.map = tex;
+                material.color.set(0xffffff);
+                material.needsUpdate = true;
+            }});
+
+            if (name === "Saturn") {{
+                loader.load("{_ring_texture_url}", function(ringTexture) {{
+                    const ringGeo = new THREE.RingGeometry(data.visual_radius * 1.3, data.visual_radius * 2.1, 64);
+                    const pos = ringGeo.attributes.position;
+                    const v3 = new THREE.Vector3();
+                    for (let i = 0; i < pos.count; i++) {{
+                        v3.fromBufferAttribute(pos, i);
+                        ringGeo.attributes.uv.setXY(i, v3.length() < data.visual_radius * 1.7 ? 0 : 1, 1);
+                    }}
+                    const ring = new THREE.Mesh(ringGeo, new THREE.MeshStandardMaterial({{
+                        map: ringTexture, side: THREE.DoubleSide, transparent: true
+                    }}));
+                    ring.rotation.x = Math.PI / 2.3;
+                    group.add(ring);
+                }});
             }}
-        );
+
+            (moonData[name] || []).forEach(function(m, i) {{
+                const moonGeo = new THREE.SphereGeometry(m.radius, 20, 20);
+                const inclination = (i % 2 === 0 ? 1 : -1) * (0.1 + i * 0.05);
+                function placeMoon(material) {{
+                    const moon = new THREE.Mesh(moonGeo, material);
+                    group.add(moon);
+                    moonMeshes.push({{ mesh: moon, distance: data.visual_radius + m.distance, angle: Math.random() * Math.PI * 2, speed: 0.2 / Math.sqrt(m.distance), inclination: inclination }});
+                }}
+                if (m.textured) {{
+                    loader.load("{_moon_texture_url}",
+                        (tex) => placeMoon(new THREE.MeshStandardMaterial({{ map: tex, roughness: 0.9 }})),
+                        undefined,
+                        () => placeMoon(new THREE.MeshStandardMaterial({{ color: m.color, roughness: 0.9 }})));
+                }} else {{
+                    placeMoon(new THREE.MeshStandardMaterial({{ color: m.color, roughness: 0.9 }}));
+                }}
+            }});
+
+            planetObjects[name] = {{
+                group: group, mesh: mesh,
+                angle: Math.random() * Math.PI * 2,
+                speed: 1.2 / Math.sqrt(data.period_days),
+                orbitRadius: data.orbit_radius,
+            }};
+        }}
+
+        Object.entries(orbitData).forEach(([name, data]) => buildPlanet(name, data));
+        document.getElementById('loading-msg').style.display = 'none';
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
         controls.dampingFactor = 0.08;
-        controls.minDistance = 1.6;
-        controls.maxDistance = 10;
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.6;
+        controls.minDistance = 2;
+        controls.maxDistance = 60;
+
+        // Click-to-zoom
+        let focusedPlanet = null;
+        let cameraTarget = null;   // THREE.Vector3 to lerp camera.position toward
+        let lookAtTarget = null;   // THREE.Vector3 to lerp controls.target toward
+
+        function showInfoPanel(name) {{
+            const stats = planetStats[name];
+            const facts = planetFacts[name];
+            infoPanel.innerHTML =
+                '<h3 style="margin:0 0 8px 0;">' + name + '</h3>' +
+                '<p style="margin:0 0 10px 0; font-size:0.9em; line-height:1.4;">' + facts.intro + '</p>' +
+                '<div style="font-size:0.85em; margin-bottom:10px;">' +
+                '<b>Radius:</b> ' + stats.radius.toFixed(2) + ' Earth radii<br>' +
+                '<b>Orbital period:</b> ' + stats.period.toLocaleString() + ' days<br>' +
+                '<b>Equilibrium temp:</b> ' + stats.teq + ' K' +
+                '</div>' +
+                '<p style="margin:0; font-size:0.85em; line-height:1.4; opacity:0.85;"><b>Moons:</b> ' + facts.moon_intro + '</p>';
+            infoPanel.style.display = 'block';
+            resetBtn.style.display = 'block';
+        }}
+
+        function focusOnPlanet(name) {{
+            focusedPlanet = name;
+            showInfoPanel(name);
+        }}
+
+        function resetView() {{
+            focusedPlanet = null;
+            infoPanel.style.display = 'none';
+            resetBtn.style.display = 'none';
+            cameraTarget = new THREE.Vector3(0, 16, 26);
+            lookAtTarget = new THREE.Vector3(0, 0, 0);
+        }}
+        resetBtn.addEventListener('click', resetView);
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        renderer.domElement.addEventListener('click', function(event) {{
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const hits = raycaster.intersectObjects(clickableMeshes);
+            if (hits.length > 0) {{
+                focusOnPlanet(hits[0].object.userData.planetName);
+            }}
+        }});
 
         function animate() {{
             requestAnimationFrame(animate);
+
+            Object.values(planetObjects).forEach(function(p) {{
+                p.angle += p.speed * 0.01;
+                p.group.position.set(Math.cos(p.angle) * p.orbitRadius, 0, Math.sin(p.angle) * p.orbitRadius);
+            }});
+            moonMeshes.forEach(function(m) {{
+                m.angle += m.speed * 0.02;
+                m.mesh.position.set(Math.cos(m.angle) * m.distance, Math.sin(m.angle) * m.distance * m.inclination, Math.sin(m.angle) * m.distance);
+            }});
+
+            if (focusedPlanet && planetObjects[focusedPlanet]) {{
+                const p = planetObjects[focusedPlanet];
+                const planetWorldPos = p.group.position;
+                const offsetDist = orbitData[focusedPlanet].visual_radius * 4 + 1.5;
+                cameraTarget = new THREE.Vector3(planetWorldPos.x + offsetDist, planetWorldPos.y + offsetDist * 0.4, planetWorldPos.z + offsetDist);
+                lookAtTarget = planetWorldPos.clone();
+            }}
+            if (cameraTarget) {{
+                camera.position.lerp(cameraTarget, 0.06);
+                controls.target.lerp(lookAtTarget, 0.06);
+            }}
+
             controls.update();
             renderer.render(scene, camera);
         }}
         animate();
     </script>
     """,
-    height=500,
+    height=580,
 )
 st.caption(
     "Real NASA-based surface imagery (Solar System Scope, CC BY 4.0), rendered live with Three.js. "
-    "Drag to rotate · scroll or pinch to zoom · rotation auto-pauses while you're interacting."
+    "Orbit distances, planet sizes, and speeds are artistically scaled (not real-world proportions) "
+    "so all eight planets stay visible and clickable together -- real distances range from 0.39 to 30 "
+    "astronomical units, which no single view could show at a usable zoom level."
 )
 
 # ---------------------------------------------------------------------------
