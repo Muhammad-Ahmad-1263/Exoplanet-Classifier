@@ -9,6 +9,9 @@ Run with: streamlit run app.py
 
 import joblib
 import hashlib
+import json
+import os
+from datetime import datetime
 from urllib.parse import quote
 import numpy as np
 import pandas as pd
@@ -17,6 +20,137 @@ import plotly.graph_objects as go
 import shap
 
 st.set_page_config(page_title="Exoplanet Disposition Classifier", page_icon="🪐", layout="wide")
+
+# ---------------------------------------------------------------------------
+# Simple file-based login + per-user history, with an admin view.
+#
+# HONEST LIMITATIONS (read before relying on this):
+# - Passwords are SHA-256 hashed, not salted with a proper KDF like bcrypt/
+#   argon2 -- adequate for a portfolio demo, not for real sensitive data.
+# - Storage is a local JSON file. On Streamlit Community Cloud, the
+#   filesystem is EPHEMERAL: it can reset on reboot or redeploy. This means
+#   user accounts and history are not guaranteed to persist long-term unless
+#   this is swapped for a real database (e.g. Supabase, SQLite on a mounted
+#   volume, or Postgres). Fine for demos and active sessions; not a
+#   production-grade user data store as-is.
+# ---------------------------------------------------------------------------
+USERS_FILE = "users_data.json"
+DEFAULT_ADMIN_USER = "admin"
+DEFAULT_ADMIN_PASS = "admin123"  # change this immediately after first login
+
+
+def _hash_pw(password):
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def _load_users():
+    if os.path.exists(USERS_FILE):
+        try:
+            with open(USERS_FILE, "r") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    # First run: seed a default admin account
+    users = {
+        DEFAULT_ADMIN_USER: {
+            "password_hash": _hash_pw(DEFAULT_ADMIN_PASS),
+            "is_admin": True,
+            "created": datetime.now().isoformat(timespec="seconds"),
+            "history": [],
+        }
+    }
+    _save_users(users)
+    return users
+
+
+def _save_users(users):
+    try:
+        with open(USERS_FILE, "w") as f:
+            json.dump(users, f, indent=2)
+    except IOError:
+        st.warning("Could not save user data to disk (read-only or ephemeral filesystem).")
+
+
+def _signup(username, password):
+    users = _load_users()
+    username = username.strip()
+    if not username or not password:
+        return False, "Username and password can't be empty."
+    if username in users:
+        return False, "That username is already taken."
+    users[username] = {
+        "password_hash": _hash_pw(password),
+        "is_admin": False,
+        "created": datetime.now().isoformat(timespec="seconds"),
+        "history": [],
+    }
+    _save_users(users)
+    return True, "Account created! You can log in now."
+
+
+def _login(username, password):
+    users = _load_users()
+    if username not in users:
+        return False, "No account with that username."
+    if users[username]["password_hash"] != _hash_pw(password):
+        return False, "Incorrect password."
+    return True, "Logged in."
+
+
+def _log_prediction(username, record):
+    users = _load_users()
+    if username in users:
+        users[username]["history"].append(record)
+        _save_users(users)
+
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+    st.session_state.username = None
+
+if not st.session_state.logged_in:
+    st.title("🪐 Exoplanet Disposition Classifier")
+    st.caption("Please log in or create an account to continue.")
+
+    login_tab, signup_tab = st.tabs(["Log In", "Sign Up"])
+    with login_tab:
+        with st.form("login_form"):
+            li_user = st.text_input("Username")
+            li_pass = st.text_input("Password", type="password")
+            if st.form_submit_button("Log In"):
+                ok, msg = _login(li_user, li_pass)
+                if ok:
+                    st.session_state.logged_in = True
+                    st.session_state.username = li_user.strip()
+                    st.rerun()
+                else:
+                    st.error(msg)
+        st.caption(
+            f"First time here? A default admin account exists for demo purposes: "
+            f"username `{DEFAULT_ADMIN_USER}`, password `{DEFAULT_ADMIN_PASS}`. "
+            f"This is a demo credential only -- don't rely on it for anything sensitive."
+        )
+    with signup_tab:
+        with st.form("signup_form"):
+            su_user = st.text_input("Choose a username")
+            su_pass = st.text_input("Choose a password", type="password")
+            if st.form_submit_button("Sign Up"):
+                ok, msg = _signup(su_user, su_pass)
+                if ok:
+                    st.success(msg)
+                else:
+                    st.error(msg)
+    st.stop()
+
+# Logged in from here on -- show a small user bar
+_userbar_l, _userbar_r = st.columns([5, 1])
+with _userbar_l:
+    st.caption(f"Logged in as **{st.session_state.username}**")
+with _userbar_r:
+    if st.button("Log out"):
+        st.session_state.logged_in = False
+        st.session_state.username = None
+        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Theme + color customization. Streamlit's officially supported theming
@@ -245,6 +379,19 @@ with col_results:
     pred_idx = int(np.argmax(proba))
     pred_label = le.classes_[pred_idx]
     confidence = proba[pred_idx]
+
+    # Log this prediction to the user's history -- but only when the inputs
+    # actually changed, so unrelated reruns (theme toggle, chat, etc.) don't
+    # spam duplicate entries.
+    _current_input_signature = tuple(round(v, 4) for v in input_values.values())
+    if st.session_state.get("last_logged_input") != _current_input_signature:
+        st.session_state.last_logged_input = _current_input_signature
+        _log_prediction(st.session_state.username, {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "inputs": {k: round(v, 4) for k, v in input_values.items()},
+            "prediction": pred_label,
+            "confidence": round(float(confidence), 4),
+        })
 
     label_colors = {
         "CONFIRMED": "#2ca02c",
@@ -609,3 +756,72 @@ if user_question:
     st.session_state.chat_history.append({"role": "assistant", "content": reply})
     with st.chat_message("assistant"):
         st.write(reply)
+
+# ---------------------------------------------------------------------------
+# Personal prediction history for the logged-in user
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("🕘 Your Prediction History")
+
+_all_users = _load_users()
+_my_history = _all_users.get(st.session_state.username, {}).get("history", [])
+
+if not _my_history:
+    st.caption("No predictions logged yet in this session -- adjust the sliders above to get started.")
+else:
+    _hist_df = pd.DataFrame([
+        {
+            "Time": h["timestamp"],
+            "Prediction": h["prediction"],
+            "Confidence": f"{h['confidence']:.1%}",
+            **{k: v for k, v in h["inputs"].items()},
+        }
+        for h in reversed(_my_history[-50:])  # most recent 50, newest first
+    ])
+    st.dataframe(_hist_df, width="stretch", hide_index=True)
+    st.caption(f"Showing your {min(len(_my_history), 50)} most recent predictions (of {len(_my_history)} total).")
+
+# ---------------------------------------------------------------------------
+# Admin panel -- visible only to accounts flagged is_admin
+# ---------------------------------------------------------------------------
+if _all_users.get(st.session_state.username, {}).get("is_admin", False):
+    st.divider()
+    st.subheader("🔐 Admin Panel")
+    st.caption(
+        "Visible only to admin accounts. Shows all registered users and every "
+        "logged prediction across the whole app."
+    )
+
+    _user_rows = []
+    _all_history_rows = []
+    for uname, udata in _all_users.items():
+        _user_rows.append({
+            "Username": uname,
+            "Is Admin": udata.get("is_admin", False),
+            "Created": udata.get("created", "unknown"),
+            "Predictions Made": len(udata.get("history", [])),
+        })
+        for h in udata.get("history", []):
+            _all_history_rows.append({
+                "User": uname,
+                "Time": h["timestamp"],
+                "Prediction": h["prediction"],
+                "Confidence": f"{h['confidence']:.1%}",
+            })
+
+    admin_tab1, admin_tab2 = st.tabs(["Registered Users", "All Predictions"])
+    with admin_tab1:
+        st.dataframe(pd.DataFrame(_user_rows), width="stretch", hide_index=True)
+    with admin_tab2:
+        if _all_history_rows:
+            _all_hist_df = pd.DataFrame(sorted(_all_history_rows, key=lambda r: r["Time"], reverse=True))
+            st.dataframe(_all_hist_df, width="stretch", hide_index=True)
+        else:
+            st.caption("No predictions logged by any user yet.")
+
+    st.caption(
+        "⚠️ Reminder: this data is stored in a local JSON file, which is not guaranteed to "
+        "persist across app reboots/redeploys on Streamlit Community Cloud. For a real "
+        "production deployment, swap this for a proper database."
+    )
+    
