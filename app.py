@@ -76,6 +76,8 @@ def _signup(username, password):
     username = username.strip()
     if not username or not password:
         return False, "Username and password can't be empty."
+    if len(password) < 8:
+        return False, "Password must be at least 8 characters long."
     if username in users:
         return False, "That username is already taken."
     users[username] = {
@@ -110,7 +112,7 @@ if "logged_in" not in st.session_state:
 
 if not st.session_state.logged_in:
     st.title("🪐 Exoplanet Disposition Classifier")
-    st.caption("Please log in or create an account to continue.")
+    st.caption("By Muhammad Ahmad — please log in or create an account to continue.")
 
     login_tab, signup_tab = st.tabs(["Log In", "Sign Up"])
     with login_tab:
@@ -133,7 +135,9 @@ if not st.session_state.logged_in:
     with signup_tab:
         with st.form("signup_form"):
             su_user = st.text_input("Choose a username")
-            su_pass = st.text_input("Choose a password", type="password")
+            su_pass = st.text_input("Choose a password", type="password",
+                                     help="Must be at least 8 characters long.")
+            st.caption("Password must be at least 8 characters.")
             if st.form_submit_button("Sign Up"):
                 ok, msg = _signup(su_user, su_pass)
                 if ok:
@@ -321,11 +325,41 @@ def find_closest_planet(prad, period, teq):
             best_name, best_dist = name, d
     return best_name
 
-st.title("🪐 Exoplanet Disposition Classifier")
-st.caption(
-    "Predicts whether a Kepler Object of Interest is a **Candidate**, "
-    "**Confirmed Exoplanet**, or **False Positive**, using the trained "
-    f"**{best_name}** model on real NASA Kepler mission data."
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+    div[data-testid="stExpander"], div[data-testid="stForm"] {
+        border-radius: 12px;
+        border: 1px solid rgba(128,128,128,0.15);
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    f"""
+    <div style="
+        background: linear-gradient(135deg, {_primary}dd 0%, {_primary}88 100%);
+        padding: 28px 32px;
+        border-radius: 14px;
+        margin-bottom: 20px;
+    ">
+        <h1 style="color: white; margin: 0; font-size: 2.1em;">🪐 Exoplanet Disposition Classifier</h1>
+        <p style="color: rgba(255,255,255,0.92); margin-top: 8px; margin-bottom: 0; font-size: 1.05em;">
+            Predicts whether a Kepler Object of Interest is a <b>Candidate</b>, <b>Confirmed Exoplanet</b>,
+            or <b>False Positive</b>, using the trained <b>{best_name}</b> model on real NASA Kepler mission data.
+        </p>
+        <p style="color: rgba(255,255,255,0.75); margin-top: 10px; margin-bottom: 0; font-size: 0.85em;">
+            Built by Muhammad Ahmad
+        </p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
 with st.expander("About this model", expanded=False):
@@ -747,15 +781,15 @@ for msg in st.session_state.chat_history:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-user_question = st.chat_input("Ask about the model, dataset, or results...")
-if user_question:
+with st.form("faq_chat_form", clear_on_submit=True):
+    user_question = st.text_input("Ask about the model, dataset, or results...", label_visibility="collapsed")
+    sent = st.form_submit_button("Send")
+
+if sent and user_question:
     st.session_state.chat_history.append({"role": "user", "content": user_question})
-    with st.chat_message("user"):
-        st.write(user_question)
     reply = answer_faq(user_question)
     st.session_state.chat_history.append({"role": "assistant", "content": reply})
-    with st.chat_message("assistant"):
-        st.write(reply)
+    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Personal prediction history for the logged-in user
@@ -824,4 +858,15 @@ if _all_users.get(st.session_state.username, {}).get("is_admin", False):
         "persist across app reboots/redeploys on Streamlit Community Cloud. For a real "
         "production deployment, swap this for a proper database."
     )
-    
+
+st.divider()
+st.markdown(
+    f"""
+    <div style="text-align: center; padding: 18px 0 8px 0; color: {_text_color}; opacity: 0.7; font-size: 0.85em;">
+        Built by <b>Muhammad Ahmad</b> · Applying concepts from
+        <i>Advanced Learning Algorithms</i> (DeepLearning.AI / Stanford Online, via Coursera)<br>
+        Data: NASA Exoplanet Archive, Kepler Cumulative KOI Table
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
