@@ -9,7 +9,6 @@ Run with: streamlit run app.py
 
 import joblib
 import hashlib
-import json
 import os
 from datetime import datetime
 from urllib.parse import quote
@@ -23,87 +22,108 @@ st.set_page_config(page_title="Exoplanet Disposition Classifier", page_icon="�
 
 # ---------------------------------------------------------------------------
 # Simple file-based login + per-user history, with an admin view.
+# Data is stored in two real, human-readable CSV files:
+#   - users.csv   : one row per registered account
+#   - history.csv : one row per prediction ever logged
 #
 # HONEST LIMITATIONS (read before relying on this):
 # - Passwords are SHA-256 hashed, not salted with a proper KDF like bcrypt/
 #   argon2 -- adequate for a portfolio demo, not for real sensitive data.
-# - Storage is a local JSON file. On Streamlit Community Cloud, the
-#   filesystem is EPHEMERAL: it can reset on reboot or redeploy. This means
-#   user accounts and history are not guaranteed to persist long-term unless
-#   this is swapped for a real database (e.g. Supabase, SQLite on a mounted
-#   volume, or Postgres). Fine for demos and active sessions; not a
-#   production-grade user data store as-is.
+# - Storage is local CSV files. On Streamlit Community Cloud, the filesystem
+#   is EPHEMERAL: it can reset on reboot or redeploy. This means accounts and
+#   history are not guaranteed to persist long-term unless this is swapped
+#   for a real database (e.g. Supabase, SQLite on a mounted volume, or
+#   Postgres). Fine for demos and active sessions; not a production-grade
+#   user data store as-is.
 # ---------------------------------------------------------------------------
-USERS_FILE = "users_data.json"
+USERS_CSV = "users.csv"
+HISTORY_CSV = "history.csv"
 DEFAULT_ADMIN_USER = "admin"
 DEFAULT_ADMIN_PASS = "admin123"  # change this immediately after first login
+_HISTORY_COLUMNS = ["username", "timestamp", "prediction", "confidence"] + [
+    "koi_period", "koi_duration", "koi_depth", "koi_prad", "koi_teq",
+    "koi_insol", "koi_model_snr", "koi_impact", "koi_steff", "koi_slogg",
+    "koi_srad", "koi_kepmag",
+]
 
 
 def _hash_pw(password):
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def _load_users():
-    if os.path.exists(USERS_FILE):
+def _load_users_csv():
+    if os.path.exists(USERS_CSV):
         try:
-            with open(USERS_FILE, "r") as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
+            return pd.read_csv(USERS_CSV, dtype={"username": str, "password_hash": str})
+        except (pd.errors.EmptyDataError, IOError):
             pass
-    # First run: seed a default admin account
-    users = {
-        DEFAULT_ADMIN_USER: {
-            "password_hash": _hash_pw(DEFAULT_ADMIN_PASS),
-            "is_admin": True,
-            "created": datetime.now().isoformat(timespec="seconds"),
-            "history": [],
-        }
-    }
-    _save_users(users)
-    return users
+    # First run: seed a real users.csv with a default admin account
+    df = pd.DataFrame([{
+        "username": DEFAULT_ADMIN_USER,
+        "password_hash": _hash_pw(DEFAULT_ADMIN_PASS),
+        "is_admin": True,
+        "created": datetime.now().isoformat(timespec="seconds"),
+    }])
+    df.to_csv(USERS_CSV, index=False)
+    return df
 
 
-def _save_users(users):
+def _save_users_csv(df):
     try:
-        with open(USERS_FILE, "w") as f:
-            json.dump(users, f, indent=2)
+        df.to_csv(USERS_CSV, index=False)
     except IOError:
         st.warning("Could not save user data to disk (read-only or ephemeral filesystem).")
 
 
+def _load_history_csv():
+    if os.path.exists(HISTORY_CSV):
+        try:
+            return pd.read_csv(HISTORY_CSV)
+        except (pd.errors.EmptyDataError, IOError):
+            pass
+    df = pd.DataFrame(columns=_HISTORY_COLUMNS)
+    df.to_csv(HISTORY_CSV, index=False)
+    return df
+
+
 def _signup(username, password):
-    users = _load_users()
+    users = _load_users_csv()
     username = username.strip()
     if not username or not password:
         return False, "Username and password can't be empty."
     if len(password) < 8:
         return False, "Password must be at least 8 characters long."
-    if username in users:
+    if username in users["username"].astype(str).values:
         return False, "That username is already taken."
-    users[username] = {
+    new_row = pd.DataFrame([{
+        "username": username,
         "password_hash": _hash_pw(password),
         "is_admin": False,
         "created": datetime.now().isoformat(timespec="seconds"),
-        "history": [],
-    }
-    _save_users(users)
+    }])
+    users = pd.concat([users, new_row], ignore_index=True)
+    _save_users_csv(users)
     return True, "Account created! You can log in now."
 
 
 def _login(username, password):
-    users = _load_users()
-    if username not in users:
+    users = _load_users_csv()
+    match = users[users["username"].astype(str) == username]
+    if match.empty:
         return False, "No account with that username."
-    if users[username]["password_hash"] != _hash_pw(password):
+    if str(match.iloc[0]["password_hash"]) != _hash_pw(password):
         return False, "Incorrect password."
     return True, "Logged in."
 
 
 def _log_prediction(username, record):
-    users = _load_users()
-    if username in users:
-        users[username]["history"].append(record)
-        _save_users(users)
+    history = _load_history_csv()
+    new_row = pd.DataFrame([{"username": username, **record}])
+    history = pd.concat([history, new_row], ignore_index=True)
+    try:
+        history.to_csv(HISTORY_CSV, index=False)
+    except IOError:
+        st.warning("Could not save prediction history to disk (read-only or ephemeral filesystem).")
 
 
 if "logged_in" not in st.session_state:
@@ -422,9 +442,9 @@ with col_results:
         st.session_state.last_logged_input = _current_input_signature
         _log_prediction(st.session_state.username, {
             "timestamp": datetime.now().isoformat(timespec="seconds"),
-            "inputs": {k: round(v, 4) for k, v in input_values.items()},
             "prediction": pred_label,
             "confidence": round(float(confidence), 4),
+            **{k: round(v, 4) for k, v in input_values.items()},
         })
 
     label_colors = {
@@ -797,66 +817,63 @@ if sent and user_question:
 st.divider()
 st.subheader("🕘 Your Prediction History")
 
-_all_users = _load_users()
-_my_history = _all_users.get(st.session_state.username, {}).get("history", [])
+_all_users_df = _load_users_csv()
+_all_history_df = _load_history_csv()
+_my_history_df = _all_history_df[_all_history_df["username"] == st.session_state.username]
 
-if not _my_history:
-    st.caption("No predictions logged yet in this session -- adjust the sliders above to get started.")
+if _my_history_df.empty:
+    st.caption("No predictions logged yet -- adjust the sliders above to get started.")
 else:
-    _hist_df = pd.DataFrame([
-        {
-            "Time": h["timestamp"],
-            "Prediction": h["prediction"],
-            "Confidence": f"{h['confidence']:.1%}",
-            **{k: v for k, v in h["inputs"].items()},
-        }
-        for h in reversed(_my_history[-50:])  # most recent 50, newest first
-    ])
-    st.dataframe(_hist_df, width="stretch", hide_index=True)
-    st.caption(f"Showing your {min(len(_my_history), 50)} most recent predictions (of {len(_my_history)} total).")
+    _my_display = _my_history_df.sort_values("timestamp", ascending=False).head(50).copy()
+    _my_display["confidence"] = _my_display["confidence"].apply(lambda c: f"{float(c):.1%}")
+    _my_display = _my_display.drop(columns=["username"]).rename(columns={
+        "timestamp": "Time", "prediction": "Prediction", "confidence": "Confidence"
+    })
+    st.dataframe(_my_display, width="stretch", hide_index=True)
+    st.caption(
+        f"Showing your {min(len(_my_history_df), 50)} most recent predictions "
+        f"(of {len(_my_history_df)} total). Full data lives in history.csv."
+    )
 
 # ---------------------------------------------------------------------------
 # Admin panel -- visible only to accounts flagged is_admin
 # ---------------------------------------------------------------------------
-if _all_users.get(st.session_state.username, {}).get("is_admin", False):
+_my_user_row = _all_users_df[_all_users_df["username"] == st.session_state.username]
+_is_admin = bool(_my_user_row.iloc[0]["is_admin"]) if not _my_user_row.empty else False
+
+if _is_admin:
     st.divider()
     st.subheader("🔐 Admin Panel")
     st.caption(
         "Visible only to admin accounts. Shows all registered users and every "
-        "logged prediction across the whole app."
+        "logged prediction across the whole app, read directly from users.csv and history.csv."
     )
 
-    _user_rows = []
-    _all_history_rows = []
-    for uname, udata in _all_users.items():
-        _user_rows.append({
-            "Username": uname,
-            "Is Admin": udata.get("is_admin", False),
-            "Created": udata.get("created", "unknown"),
-            "Predictions Made": len(udata.get("history", [])),
-        })
-        for h in udata.get("history", []):
-            _all_history_rows.append({
-                "User": uname,
-                "Time": h["timestamp"],
-                "Prediction": h["prediction"],
-                "Confidence": f"{h['confidence']:.1%}",
-            })
+    _pred_counts = _all_history_df["username"].value_counts() if not _all_history_df.empty else pd.Series(dtype=int)
+    _user_display = _all_users_df.copy()
+    _user_display["Predictions Made"] = _user_display["username"].map(_pred_counts).fillna(0).astype(int)
+    _user_display = _user_display.rename(columns={
+        "username": "Username", "is_admin": "Is Admin", "created": "Created"
+    })[["Username", "Is Admin", "Created", "Predictions Made"]]
 
     admin_tab1, admin_tab2 = st.tabs(["Registered Users", "All Predictions"])
     with admin_tab1:
-        st.dataframe(pd.DataFrame(_user_rows), width="stretch", hide_index=True)
+        st.dataframe(_user_display, width="stretch", hide_index=True)
     with admin_tab2:
-        if _all_history_rows:
-            _all_hist_df = pd.DataFrame(sorted(_all_history_rows, key=lambda r: r["Time"], reverse=True))
-            st.dataframe(_all_hist_df, width="stretch", hide_index=True)
+        if not _all_history_df.empty:
+            _hist_display = _all_history_df.sort_values("timestamp", ascending=False).copy()
+            _hist_display["confidence"] = _hist_display["confidence"].apply(lambda c: f"{float(c):.1%}")
+            _hist_display = _hist_display.rename(columns={
+                "username": "User", "timestamp": "Time", "prediction": "Prediction", "confidence": "Confidence"
+            })
+            st.dataframe(_hist_display, width="stretch", hide_index=True)
         else:
             st.caption("No predictions logged by any user yet.")
 
     st.caption(
-        "⚠️ Reminder: this data is stored in a local JSON file, which is not guaranteed to "
-        "persist across app reboots/redeploys on Streamlit Community Cloud. For a real "
-        "production deployment, swap this for a proper database."
+        "⚠️ Reminder: this data is stored in local CSV files (users.csv, history.csv), which are "
+        "not guaranteed to persist across app reboots/redeploys on Streamlit Community Cloud. "
+        "For a real production deployment, swap this for a proper database."
     )
 
 st.divider()
