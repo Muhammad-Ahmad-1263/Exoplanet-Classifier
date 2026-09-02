@@ -19,39 +19,50 @@ import shap
 st.set_page_config(page_title="Exoplanet Disposition Classifier", page_icon="🪐", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Subtle background video (real NASA/ESA-sourced orbit animation, public
-# domain, hosted on Wikimedia Commons). Kept low-opacity with a translucent
-# overlay so it reads as ambiance rather than competing with the actual
-# content -- the app is a data tool first, not a video player.
+# Theme toggle. Streamlit's officially supported theming lives in
+# .streamlit/config.toml (set at deploy time), but most of Streamlit's own
+# CSS is written against standard CSS custom properties (--background-color,
+# --text-color, etc.), so re-declaring those at runtime lets a user-facing
+# toggle re-skin the app without a restart. This is a best-effort override,
+# not an official Streamlit API -- if a future Streamlit version changes
+# these internals, the toggle may need updating, but it degrades gracefully
+# (worst case: native widgets keep the config.toml light theme while the
+# custom sections below still follow the toggle).
 # ---------------------------------------------------------------------------
-_BG_VIDEO_URL = "https://upload.wikimedia.org/wikipedia/commons/0/00/Orbits.webm"
+if "theme" not in st.session_state:
+    st.session_state.theme = "Light"
+
+_theme_col, _ = st.columns([1, 5])
+with _theme_col:
+    st.session_state.theme = st.radio(
+        "Theme", ["Light", "Dark"], horizontal=True,
+        index=0 if st.session_state.theme == "Light" else 1,
+        label_visibility="collapsed",
+    )
+
+if st.session_state.theme == "Dark":
+    _bg_grad = "linear-gradient(135deg, #0e1117 0%, #1a1c27 50%, #10131a 100%)"
+    _text_color, _bg_color, _sec_bg, _primary = "#fafafa", "#0e1117", "#262730", "#ff6b6b"
+    _card_bg = "rgba(38, 39, 48, 0.75)"
+else:
+    _bg_grad = "linear-gradient(135deg, #eef3ff 0%, #ffffff 50%, #eaf6ff 100%)"
+    _text_color, _bg_color, _sec_bg, _primary = "#262730", "#ffffff", "#f0f2f6", "#ff4b4b"
+    _card_bg = "rgba(255, 255, 255, 0.75)"
+
 st.markdown(
     f"""
     <style>
-    #bg-video {{
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        object-fit: cover;
-        z-index: -2;
-        opacity: 0.45;
-        filter: saturate(1.1);
-    }}
-    #bg-overlay {{
-        position: fixed;
-        top: 0; left: 0;
-        width: 100%; height: 100%;
-        z-index: -1;
-        background: linear-gradient(180deg, rgba(255,255,255,0.60) 0%, rgba(255,255,255,0.92) 50%, rgba(255,255,255,0.97) 100%);
+    :root {{
+        --text-color: {_text_color};
+        --background-color: {_bg_color};
+        --secondary-background-color: {_sec_bg};
+        --primary-color: {_primary};
     }}
     .stApp {{
-        background: transparent;
+        background: {_bg_grad};
+        background-attachment: fixed;
     }}
     </style>
-    <video autoplay muted loop playsinline id="bg-video">
-        <source src="{_BG_VIDEO_URL}" type="video/webm">
-    </video>
-    <div id="bg-overlay"></div>
     """,
     unsafe_allow_html=True,
 )
@@ -364,3 +375,154 @@ with col_slider_info:
     m3.metric("Equilibrium temp", f"{sp['teq']} K")
     if selected_planet == closest:
         st.success(f"This is the closest Solar System match to the candidate you configured above!")
+
+st.divider()
+st.subheader("🎬 Scrub Through the Solar System")
+st.caption(
+    "Drag the slider below to scrub through a real orbit animation frame by frame, "
+    "instead of just watching it play."
+)
+
+_VIDEO_URL = "https://upload.wikimedia.org/wikipedia/commons/0/00/Orbits.webm"
+_scrub_theme_bg = "#0e1117" if st.session_state.theme == "Dark" else "#f0f2f6"
+_scrub_text = "#fafafa" if st.session_state.theme == "Dark" else "#262730"
+
+st.components.v1.html(
+    f"""
+    <div style="background:{_scrub_theme_bg}; padding:16px; border-radius:12px; font-family:sans-serif;">
+        <video id="scrub-video" width="100%" style="border-radius:8px; max-height:420px; object-fit:contain; background:black;" muted playsinline>
+            <source src="{_VIDEO_URL}" type="video/webm">
+            Your browser does not support this video format.
+        </video>
+        <input id="scrub-slider" type="range" min="0" max="1000" value="0"
+               style="width:100%; margin-top:10px;">
+        <div id="scrub-label" style="color:{_scrub_text}; font-size:0.85em; margin-top:4px;">
+            Loading video...
+        </div>
+        <button id="scrub-play" style="margin-top:8px; padding:6px 16px; border-radius:6px; border:none; cursor:pointer; background:#ff4b4b; color:white;">
+            ▶ Play / Pause
+        </button>
+    </div>
+    <script>
+        const video = document.getElementById('scrub-video');
+        const slider = document.getElementById('scrub-slider');
+        const label = document.getElementById('scrub-label');
+        const playBtn = document.getElementById('scrub-play');
+
+        video.addEventListener('loadedmetadata', () => {{
+            label.textContent = 'Duration: ' + video.duration.toFixed(1) + 's -- drag the slider to scrub';
+        }});
+        slider.addEventListener('input', () => {{
+            if (video.duration) {{
+                video.currentTime = (slider.value / 1000) * video.duration;
+                video.pause();
+            }}
+        }});
+        video.addEventListener('timeupdate', () => {{
+            if (video.duration) {{
+                slider.value = (video.currentTime / video.duration) * 1000;
+                label.textContent = video.currentTime.toFixed(1) + 's / ' + video.duration.toFixed(1) + 's';
+            }}
+        }});
+        playBtn.addEventListener('click', () => {{
+            if (video.paused) {{ video.play(); }} else {{ video.pause(); }}
+        }});
+    </script>
+    """,
+    height=560,
+)
+
+# ---------------------------------------------------------------------------
+# Project FAQ chatbot. This is a lightweight, rule-based assistant that
+# answers questions about THIS project specifically (dataset, methodology,
+# results, features) -- not a general-purpose LLM. That keeps the app fully
+# self-contained and deployable with no API keys or external services.
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("💬 Ask About This Project")
+st.caption(
+    "A simple built-in FAQ assistant -- try asking about accuracy, the dataset, "
+    "false positives, SHAP, or the leakage check."
+)
+
+FAQ_RESPONSES = [
+    (["accuracy", "how good", "performance"],
+     f"The final model ({best_name}) reaches about **77% test accuracy** and a **0.91 macro ROC-AUC** "
+     "using physical parameters alone. Including the automated pipeline vetting flags would push this to "
+     "~91%, but those flags are excluded here -- see the leakage check for why."),
+    (["leak", "vetting flag", "fpflag", "cheat", "inflat"],
+     "The raw Kepler table includes automated vetting flags computed by the mission's own pipeline. "
+     "Including them as features inflates test accuracy to ~91%, but since those flags are themselves "
+     "near-automated determinations of disposition, that would be leaking the answer into the input. "
+     "This model excludes them and reports the more honest ~77% instead."),
+    (["dataset", "data come from", "data source", "kepler koi", "nasa"],
+     "This uses the real **NASA Exoplanet Archive Kepler Cumulative KOI Table** -- 9,564 actual Kepler "
+     "Objects of Interest, cleaned down to about 9,200 usable rows with no missing values in the 12 "
+     "features used here."),
+    (["false positive", "false-positive"],
+     "A **False Positive** is a detected signal that isn't a real planet -- often caused by an eclipsing "
+     "binary star system or instrument noise mimicking a transit. About half of all Kepler detections "
+     "turn out to be false positives."),
+    (["candidate"],
+     "A **Candidate** is a signal that looks planet-like but hasn't been fully vetted or confirmed yet. "
+     "It's the hardest class to predict -- most of this model's confusion happens between Candidate and "
+     "False Positive, which mirrors real Kepler vetting difficulty."),
+    (["confirmed"],
+     "**Confirmed Exoplanet** means the signal has been independently validated as a real planet, "
+     "typically through follow-up observation or statistical validation beyond the transit signal alone."),
+    (["shap", "explain", "why did", "why does"],
+     "SHAP (SHapley Additive exPlanations) values show which input features pushed a specific prediction "
+     "toward or away from each class. Adjust the sliders above and check the 'Why this prediction?' "
+     "section -- green bars support the predicted class, red bars oppose it."),
+    (["feature", "engineer"],
+     "Adding 6 domain-motivated engineered features (transit duration/period ratio, log-transforms, "
+     "planet-to-star radius ratio) only improved accuracy by about +0.11 percentage points -- suggesting "
+     "the ~77% ceiling is close to the real information limit of this feature set, not a modeling gap."),
+    (["tun", "hyperparameter"],
+     "Hyperparameter tuning via RandomizedSearchCV (40 candidates x 5-fold CV) improved test accuracy by "
+     "only about +0.05 percentage points over the default XGBoost settings -- another sign this model is "
+     "near its ceiling on the current features."),
+    (["model", "algorithm", "xgboost", "neural network", "random forest", "decision tree"],
+     f"Four models were trained and compared: a TensorFlow neural network, a Decision Tree, a Random "
+     f"Forest, and XGBoost. **{best_name}** performed best on the held-out test set."),
+    (["solar system", "planet compar", "mercury", "venus", "jupiter", "saturn"],
+     "The Solar System comparison finds which real planet (Mercury through Neptune) is the closest match "
+     "to your candidate's radius, orbital period, and temperature -- purely for intuition, not a claim "
+     "about composition or habitability."),
+    (["andrew ng", "course", "deeplearning"],
+     "This project was built after completing 'Advanced Learning Algorithms' by DeepLearning.AI and "
+     "Stanford Online (via Coursera), taught by Andrew Ng, to apply neural networks, bias/variance "
+     "diagnosis, and tree ensembles to a real dataset."),
+    (["hello", "hi", "hey"],
+     "Hi! Ask me about the model's accuracy, the dataset, SHAP explanations, or the leakage check."),
+]
+
+def answer_faq(question):
+    q = question.lower()
+    for keywords, answer in FAQ_RESPONSES:
+        if any(kw in q for kw in keywords):
+            return answer
+    return (
+        "I'm a simple built-in FAQ bot for this project, so I can only answer questions about it "
+        "specifically. Try asking about: accuracy, the dataset, false positives vs. candidates, "
+        "SHAP explanations, hyperparameter tuning, or the leakage check."
+    )
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = [
+        {"role": "assistant", "content": "Hi! Ask me anything about how this project works."}
+    ]
+
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+user_question = st.chat_input("Ask about the model, dataset, or results...")
+if user_question:
+    st.session_state.chat_history.append({"role": "user", "content": user_question})
+    with st.chat_message("user"):
+        st.write(user_question)
+    reply = answer_faq(user_question)
+    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+    with st.chat_message("assistant"):
+        st.write(reply)
