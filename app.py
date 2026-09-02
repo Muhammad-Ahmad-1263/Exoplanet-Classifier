@@ -19,35 +19,46 @@ import shap
 st.set_page_config(page_title="Exoplanet Disposition Classifier", page_icon="🪐", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Theme toggle. Streamlit's officially supported theming lives in
-# .streamlit/config.toml (set at deploy time), but most of Streamlit's own
-# CSS is written against standard CSS custom properties (--background-color,
-# --text-color, etc.), so re-declaring those at runtime lets a user-facing
-# toggle re-skin the app without a restart. This is a best-effort override,
-# not an official Streamlit API -- if a future Streamlit version changes
-# these internals, the toggle may need updating, but it degrades gracefully
-# (worst case: native widgets keep the config.toml light theme while the
-# custom sections below still follow the toggle).
+# Theme + color customization. Streamlit's officially supported theming
+# lives in .streamlit/config.toml (set at deploy time), but most of
+# Streamlit's own CSS is written against standard CSS custom properties
+# (--background-color, --text-color, etc.), so re-declaring those at
+# runtime lets this on-page panel re-skin the app without a restart. This
+# is a best-effort override, not an official Streamlit API -- it degrades
+# gracefully if a future Streamlit version changes these internals.
 # ---------------------------------------------------------------------------
+_DEFAULTS = {
+    "Light": {"bg": "#ffffff", "text": "#262730", "accent": "#ff4b4b"},
+    "Dark":  {"bg": "#0e1117", "text": "#fafafa", "accent": "#ff6b6b"},
+}
 if "theme" not in st.session_state:
     st.session_state.theme = "Light"
+if "custom_colors" not in st.session_state:
+    st.session_state.custom_colors = dict(_DEFAULTS["Light"])
 
-_theme_col, _ = st.columns([1, 5])
-with _theme_col:
-    st.session_state.theme = st.radio(
-        "Theme", ["Light", "Dark"], horizontal=True,
-        index=0 if st.session_state.theme == "Light" else 1,
-        label_visibility="collapsed",
-    )
+with st.expander("🎨 Customize appearance", expanded=False):
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        new_theme = st.radio("Quick theme", ["Light", "Dark"],
+                              index=0 if st.session_state.theme == "Light" else 1)
+        if new_theme != st.session_state.theme:
+            st.session_state.theme = new_theme
+            st.session_state.custom_colors = dict(_DEFAULTS[new_theme])
+    with c2:
+        st.caption("Or pick your own colors:")
+        p1, p2, p3 = st.columns(3)
+        st.session_state.custom_colors["bg"] = p1.color_picker(
+            "Background", st.session_state.custom_colors["bg"])
+        st.session_state.custom_colors["text"] = p2.color_picker(
+            "Text", st.session_state.custom_colors["text"])
+        st.session_state.custom_colors["accent"] = p3.color_picker(
+            "Accent", st.session_state.custom_colors["accent"])
 
-if st.session_state.theme == "Dark":
-    _bg_grad = "linear-gradient(135deg, #0e1117 0%, #1a1c27 50%, #10131a 100%)"
-    _text_color, _bg_color, _sec_bg, _primary = "#fafafa", "#0e1117", "#262730", "#ff6b6b"
-    _card_bg = "rgba(38, 39, 48, 0.75)"
-else:
-    _bg_grad = "linear-gradient(135deg, #eef3ff 0%, #ffffff 50%, #eaf6ff 100%)"
-    _text_color, _bg_color, _sec_bg, _primary = "#262730", "#ffffff", "#f0f2f6", "#ff4b4b"
-    _card_bg = "rgba(255, 255, 255, 0.75)"
+_bg_color = st.session_state.custom_colors["bg"]
+_text_color = st.session_state.custom_colors["text"]
+_primary = st.session_state.custom_colors["accent"]
+_sec_bg = _bg_color
+_bg_grad = f"linear-gradient(135deg, {_bg_color} 0%, {_primary}22 50%, {_bg_color} 100%)"
 
 st.markdown(
     f"""
