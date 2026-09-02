@@ -7,4 +7,5 @@ env/
 .DS_Store
 *.egg-info/
 .pytest_cache/
-users_data.json
+users.csv
+history.csv
