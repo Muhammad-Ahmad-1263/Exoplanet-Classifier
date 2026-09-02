@@ -376,62 +376,6 @@ with col_slider_info:
     if selected_planet == closest:
         st.success(f"This is the closest Solar System match to the candidate you configured above!")
 
-st.divider()
-st.subheader("🎬 Scrub Through the Solar System")
-st.caption(
-    "Drag the slider below to scrub through a real orbit animation frame by frame, "
-    "instead of just watching it play."
-)
-
-_VIDEO_URL = "https://upload.wikimedia.org/wikipedia/commons/0/00/Orbits.webm"
-_scrub_theme_bg = "#0e1117" if st.session_state.theme == "Dark" else "#f0f2f6"
-_scrub_text = "#fafafa" if st.session_state.theme == "Dark" else "#262730"
-
-st.components.v1.html(
-    f"""
-    <div style="background:{_scrub_theme_bg}; padding:16px; border-radius:12px; font-family:sans-serif;">
-        <video id="scrub-video" width="100%" style="border-radius:8px; max-height:420px; object-fit:contain; background:black;" muted playsinline>
-            <source src="{_VIDEO_URL}" type="video/webm">
-            Your browser does not support this video format.
-        </video>
-        <input id="scrub-slider" type="range" min="0" max="1000" value="0"
-               style="width:100%; margin-top:10px;">
-        <div id="scrub-label" style="color:{_scrub_text}; font-size:0.85em; margin-top:4px;">
-            Loading video...
-        </div>
-        <button id="scrub-play" style="margin-top:8px; padding:6px 16px; border-radius:6px; border:none; cursor:pointer; background:#ff4b4b; color:white;">
-            ▶ Play / Pause
-        </button>
-    </div>
-    <script>
-        const video = document.getElementById('scrub-video');
-        const slider = document.getElementById('scrub-slider');
-        const label = document.getElementById('scrub-label');
-        const playBtn = document.getElementById('scrub-play');
-
-        video.addEventListener('loadedmetadata', () => {{
-            label.textContent = 'Duration: ' + video.duration.toFixed(1) + 's -- drag the slider to scrub';
-        }});
-        slider.addEventListener('input', () => {{
-            if (video.duration) {{
-                video.currentTime = (slider.value / 1000) * video.duration;
-                video.pause();
-            }}
-        }});
-        video.addEventListener('timeupdate', () => {{
-            if (video.duration) {{
-                slider.value = (video.currentTime / video.duration) * 1000;
-                label.textContent = video.currentTime.toFixed(1) + 's / ' + video.duration.toFixed(1) + 's';
-            }}
-        }});
-        playBtn.addEventListener('click', () => {{
-            if (video.paused) {{ video.play(); }} else {{ video.pause(); }}
-        }});
-    </script>
-    """,
-    height=560,
-)
-
 # ---------------------------------------------------------------------------
 # Project FAQ chatbot. This is a lightweight, rule-based assistant that
 # answers questions about THIS project specifically (dataset, methodology,
