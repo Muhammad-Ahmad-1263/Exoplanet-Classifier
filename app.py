@@ -144,6 +144,20 @@ SOLAR_SYSTEM_PLANETS = {
 }
 WIKIMEDIA_BASE = "https://commons.wikimedia.org/wiki/Special:FilePath/"
 
+# Real NASA-based surface texture maps (Solar System Scope, CC BY 4.0),
+# mirrored on Wikimedia Commons, used for the 3D viewer below.
+PLANET_TEXTURES = {
+    "Mercury": "Solarsystemscope_texture_2k_mercury.jpg",
+    "Venus":   "Solarsystemscope_texture_2k_venus_surface.jpg",
+    "Earth":   "Solarsystemscope_texture_2k_earth_daymap.jpg",
+    "Mars":    "Solarsystemscope_texture_2k_mars.jpg",
+    "Jupiter": "Solarsystemscope_texture_2k_jupiter.jpg",
+    "Saturn":  "Solarsystemscope_texture_2k_saturn.jpg",
+    "Uranus":  "Solarsystemscope_texture_2k_uranus.jpg",
+    "Neptune": "Solarsystemscope_texture_2k_neptune.jpg",
+}
+SATURN_RING_TEXTURE = "Solarsystemscope_texture_2k_saturn_ring_alpha.png"
+
 
 def wikimedia_direct_url(filename):
     """Build the actual upload.wikimedia.org CDN URL directly, rather than
@@ -386,6 +400,120 @@ with col_slider_info:
     m3.metric("Equilibrium temp", f"{sp['teq']} K")
     if selected_planet == closest:
         st.success(f"This is the closest Solar System match to the candidate you configured above!")
+
+st.divider()
+st.subheader("🌐 3D Planet Explorer")
+st.caption(
+    "A real, textured 3D model -- drag to rotate, scroll (or pinch on mobile) to zoom in and out."
+)
+
+_planet_3d = st.selectbox("Choose a planet to view in 3D", list(PLANET_TEXTURES.keys()),
+                           index=list(PLANET_TEXTURES.keys()).index(selected_planet))
+_texture_url = wikimedia_direct_url(PLANET_TEXTURES[_planet_3d])
+_ring_url = wikimedia_direct_url(SATURN_RING_TEXTURE) if _planet_3d == "Saturn" else ""
+_3d_bg = "#0e1117" if st.session_state.theme == "Dark" else "#eef3ff"
+
+st.components.v1.html(
+    f"""
+    <div id="viewer-container" style="width:100%; height:480px; background:{_3d_bg}; border-radius:12px; overflow:hidden; position:relative;">
+        <div id="loading-msg" style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); color:#888; font-family:sans-serif; z-index:10;">
+            Loading 3D model...
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script>
+        const container = document.getElementById('viewer-container');
+        const width = container.clientWidth;
+        const height = 480;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+        camera.position.z = 3.2;
+
+        const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
+        renderer.setSize(width, height);
+        container.appendChild(renderer.domElement);
+
+        // Lighting: ambient fill + a directional "sun" light for real shading
+        scene.add(new THREE.AmbientLight(0xffffff, 0.45));
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        sunLight.position.set(5, 3, 5);
+        scene.add(sunLight);
+
+        // Starfield backdrop for depth
+        const starGeo = new THREE.BufferGeometry();
+        const starCount = 800;
+        const starPositions = new Float32Array(starCount * 3);
+        for (let i = 0; i < starCount * 3; i++) {{ starPositions[i] = (Math.random() - 0.5) * 60; }}
+        starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+        const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({{ color: 0xffffff, size: 0.05 }}));
+        scene.add(stars);
+
+        const loader = new THREE.TextureLoader();
+        const planetGroup = new THREE.Group();
+        scene.add(planetGroup);
+
+        loader.load(
+            "{_texture_url}",
+            function(texture) {{
+                document.getElementById('loading-msg').style.display = 'none';
+                const geometry = new THREE.SphereGeometry(1, 64, 64);
+                const material = new THREE.MeshStandardMaterial({{ map: texture, roughness: 0.85, metalness: 0.05 }});
+                const sphere = new THREE.Mesh(geometry, material);
+                planetGroup.add(sphere);
+
+                const ringUrl = "{_ring_url}";
+                if (ringUrl.length > 0) {{
+                    loader.load(ringUrl, function(ringTexture) {{
+                        const ringGeo = new THREE.RingGeometry(1.3, 2.2, 64);
+                        const pos = ringGeo.attributes.position;
+                        const v3 = new THREE.Vector3();
+                        for (let i = 0; i < pos.count; i++) {{
+                            v3.fromBufferAttribute(pos, i);
+                            ringGeo.attributes.uv.setXY(i, v3.length() < 1.75 ? 0 : 1, 1);
+                        }}
+                        const ringMat = new THREE.MeshStandardMaterial({{
+                            map: ringTexture, side: THREE.DoubleSide, transparent: true
+                        }});
+                        const ring = new THREE.Mesh(ringGeo, ringMat);
+                        ring.rotation.x = Math.PI / 2.3;
+                        planetGroup.add(ring);
+                    }});
+                }}
+            }},
+            undefined,
+            function(err) {{
+                document.getElementById('loading-msg').textContent = 'Could not load texture -- showing placeholder.';
+                const geometry = new THREE.SphereGeometry(1, 64, 64);
+                const material = new THREE.MeshStandardMaterial({{ color: 0x6699cc, roughness: 0.8 }});
+                planetGroup.add(new THREE.Mesh(geometry, material));
+                setTimeout(() => {{ document.getElementById('loading-msg').style.display = 'none'; }}, 1500);
+            }}
+        );
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.08;
+        controls.minDistance = 1.6;
+        controls.maxDistance = 10;
+        controls.autoRotate = true;
+        controls.autoRotateSpeed = 0.6;
+
+        function animate() {{
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }}
+        animate();
+    </script>
+    """,
+    height=500,
+)
+st.caption(
+    "Real NASA-based surface imagery (Solar System Scope, CC BY 4.0), rendered live with Three.js. "
+    "Drag to rotate · scroll or pinch to zoom · rotation auto-pauses while you're interacting."
+)
 
 # ---------------------------------------------------------------------------
 # Project FAQ chatbot. This is a lightweight, rule-based assistant that
